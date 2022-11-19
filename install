@@ -1,0 +1,292 @@
+#!/bin/sh
+# Clear Screen
+clear
+ 
+# Banner 
+echo " ======================================================================= " 
+echo "                                                                         "     
+echo "                               NXKK0000KKXN                              "     
+echo "                           NKOdolc::::::cloxOKN                          "     
+echo "                         XOoc::::::::::::::::cdOX                        "     
+echo "       NKOkxxkkOKN     NOl::::::cloddddol:::::::lON     NKOkxxkk0KN      "     
+echo "    NKxoc:::::::cokKN Xd:::::cdOKX      XKkoc:::::xX NKxl::::::::cokK    "     
+echo "   Xxc:::::::::::::ckKd:::::o0             N0o:::::d0xc:::::::::::::lkN  "     
+echo "  Xd:::::ldkkkdc:::::c:::::dX                Xd:::::c:::::ldkkkdc:::::xN "     
+echo "  k:::::oK    NKo:::::::::l0                  0c:::::::::dK     0l::::c0 "     
+echo " Nx::::cO       k:::::::::oX                  Ko::::::::cO       x:::::k "     
+echo "  k:::::dKN   N0o:::::::::l0                  0c:::::::::dK    N0l::::c0 "     
+echo "  Xd:::::ldkkxdc::::cc:::::dX                Xo:::::c:::::ldkkkdc:::::xN "     
+echo "   Xxc:::::::::::::ckKd:::::o0N            N0o:::::x0xc:::::::::::::lkN  "     
+echo "    NKxlc:::::::cokK  Xd:::::cdkKNN    NXKkoc::::cxX  Kxoc:::::::cokX    "     
+echo "       NKOkkxkk0KN     NOl::::::cloddddolc::::::lON     NKOkkkkkOKN      "     
+echo "                         Xkoc::::::::::::::::coOX                        "     
+echo "                           NKkxolc::::::cloxOKN                          "     
+echo "                               NXK000000KNN                              "     
+echo "                                                                         "  
+echo " ======================================================================= " 
+echo " Attempting to install Latest Nextcloud (25) on RH 8 with Apache PHP 8.0 "
+echo " ======================================================================= "
+
+###############
+## Variables ##
+###############
+
+# You MUST set the Name here:
+# This is NOT the Server Name
+# This is the name that you will enter in the URL
+# This is the website DNS name
+SERVERNAME=ncloud.Your.Domain
+
+# This is the name of the database that will get created for nextcloud
+DBNAME=nextcloud
+
+# This is the username that is needed for the nextcloud database. NOTE: This is not a nextcloud user account
+USER=nextclouduser
+
+# This is the name of the nextcloud Admin user
+ADMIN=admin
+
+# Email for Certbot that will notify when the Cert is expiring
+# Doesn't have to be real, but recommend
+CERTMAIL=your@email.com
+
+# Color Scheme Fun
+red=`tput setaf 1`
+green=`tput setaf 2`
+reset=`tput sgr0`
+
+# This generates a random password for the root account of mariadb. You can change it if you wish
+echo -e "${green}Creating Random Password for root account MariaDB Admin${reset}"
+date +%s | sha256sum | base64 | head -c 16 > /tmp/.MARIADBPASSWORD
+sleep 1 # We need to sleep 1 to change the password, otherwise we end up with the same hash
+echo -e "${green}Done${reset}"
+
+# This generates a random password for the nextcloud user account in mariadb. You can change it if you wish
+echo -e "${green}Creating Random Password for nextcloud user account in MariaDB${reset}"
+date +%s | sha256sum | base64 | head -c 16 >> /tmp/.APPPASSWORD
+sleep 1 # We need to sleep 1 to change the password, otherwise we end up with the same hash
+echo -e "${green}Done${reset}"
+
+# This generates a random password for the Nextcolud admin user account password:
+echo -e "${green}Creating Random Password for NextCloud Admin account in MariaDB${reset}"
+date +%s | sha256sum | base64 | head -c 16 >> /tmp/.ADMINPASS
+sleep 1 # We need to sleep 1 to change the password, otherwise we end up with the same hash
+echo -e "${green}Done${reset}"
+
+##########################################################################
+############## NO CHANGES FROM HERE DOWN SHOULD BE REQUIRED ##############
+##########################################################################
+# Updates and Upgrade
+echo -e "${green}Running Updates (Might Take A while)${reset}"
+sudo dnf update -y &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Running Upgrades (Might Take A while)${reset}"
+sudo dnf upgrade -y &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Enable PHP 8.0
+echo -e "${green}Activating and Installing php 8.0${reset}"
+sudo dnf module switch-to php:8.0 -y &> /dev/null
+sudo dnf module enable php:8.0 -y &> /dev/null
+sudo dnf module install php:8.0 -y &> /dev/null
+sudo dnf update -y &> /dev/null
+sudo dnf upgrade -y &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Install prerequisites
+echo -e "${green}Installing prerequisite software${reset}"
+sudo dnf install -y yum-utils unzip curl wget bash-completion policycoreutils-python-utils langpacks-en glibc-all-langpacks mlocate bzip2 httpd mariadb-server mariadb memcached mod_ssl redis &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Installing prerequisite PHP modules${reset}"
+sudo dnf install -y php php-gd php-mbstring php-intl php-pecl-apcu php-mysqlnd php-opcache php-json php-zip php-process php-bcmath php-gmp &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Enable Extra Repo for CertBot
+echo -e "${green}Enable Extra Repo for CertBot${reset}"
+sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Install CertBot${reset}"
+sudo dnf install -y certbot python3-certbot-apache &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Edit PHP.ini
+echo -e "${green}Editing PHP.ini${reset}"
+sed -i 's/upload_max_filesize = 2M/upload_max_filesize = 51200M/g' /etc/php.ini
+sed -i 's/memory_limit\ =\ 128M/memory_limit\ =\ 2048M/g' /etc/php.ini
+sed -i 's/;date.timezone =/date.timezone\ = America\/New_York/g' /etc/php.ini
+echo -e "${green}Done${reset}"
+
+# Firewall
+echo -e "${green}Firewall (HTTP/HTTPS)${reset}"
+sudo firewall-cmd --permanent --add-service=https --add-service=http &> /dev/null 
+sudo firewall-cmd --reload &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Start Redis
+echo -e "${green}Enable and Starting Redis Services${reset}"
+sudo systemctl enable redis.service &> /dev/null
+sudo systemctl start redis.service &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Start MariaDB
+echo -e "${green}Enable and Starting MariaDB Services${reset}"
+sudo systemctl enable mariadb.service &> /dev/null
+sudo systemctl start mariadb.service &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Start MariaDB
+echo -e "${green}Enable and Starting php-fpm Services${reset}"
+sudo systemctl enable php-fpm &> /dev/null
+sudo systemctl start php-fpm &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Create a Genaric Virtual host
+echo -e "${green}Create a Genaric Virtual host for nextcloud${reset}"
+cat << EOF >> /etc/httpd/conf.d/nextcloud.conf
+<VirtualHost *:80>
+  ServerName $SERVERNAME
+  DocumentRoot /var/www/html/nextcloud
+  <directory /var/www/html/nextcloud>
+    Require all granted
+    AllowOverride All
+    Options FollowSymLinks MultiViews
+    SetEnv HOME /var/www/html/nextcloud
+    SetEnv HTTP_HOME /var/www/html/nextcloud
+  </directory>
+</VirtualHost>
+EOF
+echo -e "${green}Done${reset}"
+
+
+#Restart httpd 
+echo -e "${green}Restart Apache${reset}"
+sudo systemctl restart httpd.service &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Install NextCloud
+echo -e "${green}Downloading Latest NextCloud to /tmp/${reset}"
+sudo wget https://download.nextcloud.com/server/releases/latest.zip -P /tmp/ &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Unzip Nexcloud to /var/www/html${reset}"
+sudo unzip /tmp/latest.zip -d /var/www/html &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Creating DIR /var/www/html/nextcloud/data${reset}"
+sudo mkdir /var/www/html/nextcloud/data &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Set Permissions to /var/wwww/${reset}"
+sudo chown apache:apache -R /var/www/ &> /dev/null
+sudo chmod 775 -R /var/www/ &> /dev/null
+echo -e "${green}Done${reset}"
+
+echo -e "${green}Restart Apache${reset}"
+sudo systemctl restart httpd.service &> /dev/null
+echo -e "${green}Done${reset}"
+
+
+#SELinux 
+echo -e "${green}Setting Selinux Permissions${reset}"
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/html/nextcloud/data(/.*)?' &> /dev/null
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/html/nextcloud/config(/.*)?' &> /dev/null
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/html/nextcloud/apps(/.*)?' &> /dev/null
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/html/nextcloud/.htaccess' &> /dev/null
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/html/nextcloud/.user.ini' &> /dev/null
+sudo semanage fcontext -a -t httpd_sys_rw_content_t '/var/www/html/nextcloud/3rdparty/aws/aws-sdk-php/src/data/logs(/.*)?' &> /dev/null
+sudo restorecon -R '/var/www/html/nextcloud/' &> /dev/null
+sudo setsebool -P httpd_can_network_connect on &> /dev/null
+echo -e "${green}Done${reset}"
+
+# Setup SQL
+echo -e "${green}Setting up DB\User\Password for Nextcloud${reset}"
+cat << EOF >> /tmp/setup.sql
+SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$(cat /tmp/.MARIADBPASSWORD)');
+DELETE FROM mysql.user WHERE User='';
+DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%';
+CREATE DATABASE $DBNAME DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE USER $USER@localhost IDENTIFIED BY '$(cat /tmp/.APPPASSWORD)';
+GRANT ALL PRIVILEGES ON $DBNAME.* TO $USER@localhost;
+FLUSH PRIVILEGES;
+quit
+EOF
+
+mysql -u root < /tmp/setup.sql
+echo -e "${green}Done${reset}"
+
+# Setup SQL
+echo -e "${green}Setting Nextcloud Conf with DB Info${reset}"
+sudo -u apache php /var/www/html/nextcloud/occ maintenance:install --database "mysql" --database-name "$DBNAME" --database-user "$USER" --database-pass "$(cat /tmp/.APPPASSWORD)" --admin-user "$ADMIN" --admin-pass "$(cat /tmp/.ADMINPASS)" --data-dir "/var/www/html/nextcloud/data"
+echo -e "${green}Done${reset}"
+
+# Trusted Domains
+echo -e "${green}Modifing Allowed connections in CONF ${reset}"
+sed -i "s/0 => 'localhost/0 => '*/g" /var/www/html/nextcloud/config/config.php
+echo -e "${green}Done${reset}"
+
+# User Experience 
+echo -e "${green}Modifying User Default Settings for NC${reset}"
+sudo sed -i "s/);/\ \ 'default_language' => 'en',/g" /var/www/html/nextcloud/config/config.php
+sudo echo "  'force_language' => 'en'," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'default_locale' => 'en_US'," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'default_phone_region' => 'US'," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'defaultapp' => 'dashboard,files'," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'knowledgebaseenabled' => true," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'allow_user_to_change_display_name' => true," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'remember_login_cookie_lifetime' => 60*60*24*15," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'session_lifetime' => 60 * 60 * 24," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'session_keepalive' => true," >> /var/www/html/nextcloud/config/config.php
+sudo echo "  'memcache.local' => '\OC\Memcache\APCu'," >> /var/www/html/nextcloud/config/config.php
+sudo echo ");" >> /var/www/html/nextcloud/config/config.php
+sudo echo -e "${green}Done${reset}"
+
+# Edit 10-opcache.ini
+echo -e "${green}Edit 10-opcache.ini${reset}"
+sudo sed -i 's/opcache.max_accelerated_files=4000/opcache.max_accelerated_files=10000/g' /etc/php.d/10-opcache.ini
+sudo sed -i 's/;opcache.interned_strings_buffer=8/opcache.interned_strings_buffer=8/g' /etc/php.d/10-opcache.ini
+sudo sed -i 's/;opcache.max_accelerated_files=10000/opcache.max_accelerated_files=10000/g' /etc/php.d/10-opcache.ini
+sudo sed -i 's/;opcache.memory_consumption=128/opcache.memory_consumption=128/g' /etc/php.d/10-opcache.ini
+sudo sed -i 's/;opcache.save_comments=1/opcache.save_comments=1/g' /etc/php.d/10-opcache.ini
+sudo sed -i 's/;opcache.revalidate_freq=2/opcache.revalidate_freq=1/g' /etc/php.d/10-opcache.ini
+echo -e "${green}Done${reset}"
+
+# Restarting php-fpm
+echo -e "${green}Restarting PHP-FPM${reset}"
+sudo systemctl restart php-fpm
+echo -e "${green}Done${reset}"
+
+# Restarting HTTPD
+echo -e "${green}Restarting HTTPD-Apache${reset}"
+sudo systemctl restart httpd.service
+echo -e "${green}Done${reset}"
+sleep 5 # Just to pause so you can see it
+
+clear
+
+
+
+echo -e "${red}To access NextCloud Core${reset}"
+echo -e "${red}=====================${reset}"
+echo -e "${green}Open an internet browser${reset}"
+echo -e "${green}HTTP://<HOST-IP>${reset}"
+echo -e "${green}HTTP://$SERVERNAME${reset}"
+echo ""
+echo -e "${green}User: admin${reset}"
+echo -e "${green}Password:" $(cat /tmp/.ADMINPASS) "${reset}"
+echo ""
+echo ""
+echo -e "${red}Don't Forget to Clean the TMP${reset}"
+echo -e "${red}.APPPASSWORD${reset}"
+echo -e "${red}.MARIADBPASSWORD${reset}"
+echo -e "${red}.ADMINPASS${reset}"
+echo -e "${red}setup.sql${reset}"
+
+
+
+
+# certbot --apache --agree-tos --redirect --uir --hsts --staple-ocsp --must-staple -d $SERVERNAME --email $CERTMAIL
